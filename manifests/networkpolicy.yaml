@@ -1,0 +1,24 @@
+# Namespace-level network isolation for sddp-app — satisfies POL-05, which
+# requires every application namespace to DECLARE its isolation in Git rather
+# than silently inheriting the cluster default.
+#
+# This is a default-deny-all floor: no ingress, no egress, until explicitly
+# granted. It declares intent (POL-05 checks existence, not shape). The real
+# allow-rules — frontend -> backend -> db, plus DNS and the named platform-
+# service egress allowlist, with mTLS — are the self-managed Cilium work in
+# Week 6; they layer on top of this floor, they do not replace it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: sddp-app
+  annotations:
+    # Apply the NetworkPolicy before the backend Deployment, so POL-05 (which
+    # rejects pods in a namespace with zero NetworkPolicies) is already satisfied
+    # when the pod is admitted.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

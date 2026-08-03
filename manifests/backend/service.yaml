@@ -1,0 +1,18 @@
+# Stable in-cluster address for the backend. ClusterIP only — the backend is
+# not exposed externally; the frontend tier (APP-006, later) reaches it by this
+# Service name, and Ingress fronts the frontend, never the backend directly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: sddp-app
+  labels:
+    app: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

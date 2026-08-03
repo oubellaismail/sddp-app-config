@@ -1,0 +1,65 @@
+# Backend tier (Node/Express) — the first real workload delivered by GitOps,
+# replacing the retired placeholder. Image is the SIGNED digest in DOCR (the
+# prod registry of record), so it satisfies POL-01 (signature) + POL-04 (DOCR).
+# The securityContext + resources below satisfy POL-02 (restricted) + POL-03
+# (resource limits); the namespace's NetworkPolicy satisfies POL-05.
+#
+# Image is pinned by DIGEST (ADR-004) — this is exactly the reference the §3.12
+# pipeline step bumps on each new signed release. No imagePullSecret: the DOCR
+# cluster integration injects pull creds into every namespace, including this one.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: sddp-app
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      # POL-02 (restricted): non-root + seccomp at the pod level; the container
+      # drops all capabilities and forbids privilege escalation.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: registry.digitalocean.com/sddp-registry/sddp-backend@sha256:ce0c2117d39bd0b8f3061a177b32daf2ae2bc3b7c6afd47043b8ed9d016c3a74
+          ports:
+            - name: http
+              containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          # POL-03 (small tier): CPU request + memory request + memory limit.
+          # CPU limit intentionally omitted (permitted, not required — spec v1.2).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
