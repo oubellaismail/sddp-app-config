@@ -1,0 +1,19 @@
+# Stable in-cluster address for the db. ClusterIP only — reachable solely from
+# the backend tier, and only because the NetworkPolicy allows backend->db:5432
+# (everything else in the namespace is default-denied). The backend resolves this
+# by name: DATABASE_URL points at postgres://…@db:5432/…
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: sddp-app
+  labels:
+    app: db
+spec:
+  type: ClusterIP
+  selector:
+    app: db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
