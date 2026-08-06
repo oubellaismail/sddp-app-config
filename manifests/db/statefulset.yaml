@@ -3,25 +3,34 @@
 # is sddp-* only), and POL-04 admits it via its named, digest-pinned allowlist
 # entry (cgr.dev/chainguard/postgres@sha256:0e79…). Image pinned by digest (ADR-004).
 #
-# POC storage = EPHEMERAL (emptyDir): data is wiped on pod restart. The point of
-# this tier is proving deploy + POL-04 admit + backend->db connectivity, not
-# durability. PHASE 2 (real-world demo): upgrade to a StatefulSet + PVC (DO block
-# volume) for persistence — tracked in ACFG-002.
+# PHASE 2 storage = PERSISTENT (ACFG-003). Ephemeral emptyDir (ACFG-002) is
+# replaced by a StatefulSet + volumeClaimTemplate → a PersistentVolumeClaim on
+# DOKS's `do-block-storage` StorageClass → a DigitalOcean Block Storage volume.
+# Postgres data now survives pod restart/reschedule.
+#   ⚠ COST + CLEANUP: the block volume is provisioned by the CSI driver at runtime,
+#   NOT by Terraform — so `terraform destroy` tears down the cluster but ORPHANS the
+#   volume (keeps charging ~$0.10/GiB/mo until deleted in the DO console). do-block-
+#   storage reclaimPolicy is Delete, so a graceful `kubectl delete pvc` while the
+#   cluster is alive DOES remove the DO volume; a hard `terraform destroy` does not.
+#   → folded into the bring-up/teardown runbook.
 #
 # Non-root under POL-02 (restricted): the image entrypoint defaults to root, so
 # we pin runAsUser to the image's `postgres` account, uid 70 (verified from the
 # image's /etc/passwd, so getpwuid resolves). PGDATA is a SUBDIR of the mounted
-# emptyDir: the mount root is group-owned by 70 via fsGroup, so initdb creates
-# the pgdata subdir owned by 70:70 mode 0700 (correct). /var/run/postgresql is
-# already 0777 in the image, so the unix socket needs no extra volume.
+# volume: the block volume's fresh ext4 root carries a root-owned `lost+found`, so
+# initdb must NOT run at the mount root. fsGroup 70 (+ OnRootMismatch) chowns the
+# volume root to gid 70; initdb then creates the pgdata subdir owned 70:70 mode
+# 0700 (correct). /var/run/postgresql is already 0777 in the image, so the unix
+# socket needs no extra volume.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: db
   namespace: sddp-app
   labels:
     app: db
 spec:
+  serviceName: db
   replicas: 1
   selector:
     matchLabels:
@@ -64,7 +73,8 @@ spec:
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef: { name: db-credentials, key: POSTGRES_DB }
-            # Subdir of the emptyDir mount so initdb creates it owned by uid 70.
+            # Subdir of the mounted volume so initdb creates it owned by uid 70
+            # (and stays clear of the block volume's root-owned lost+found).
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           resources:
@@ -86,6 +96,12 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
-      volumes:
-        - name: pgdata
-          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: do-block-storage
+        resources:
+          requests:
+            storage: 1Gi
