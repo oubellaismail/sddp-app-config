@@ -1,0 +1,73 @@
+# Frontend tier (Node/Express) — the front door of the three-tier app
+# (frontend -> backend -> db). Image is the SIGNED digest in DOCR (prod registry
+# of record), so it satisfies POL-01 (signature, pinned to release.yml@main) +
+# POL-04 (DOCR-only). The securityContext + resources satisfy POL-02 (restricted)
+# + POL-03 (small tier); the namespace's NetworkPolicy satisfies POL-05.
+#
+# Image pinned by DIGEST (ADR-004) — this is exactly the reference the §3.12
+# pipeline step bumps on each new signed frontend release. No imagePullSecret:
+# the DOCR cluster integration injects pull creds into every namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: sddp-app
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      # POL-02 (restricted): non-root + seccomp at the pod level; the container
+      # drops all capabilities and forbids privilege escalation. The image runs
+      # as uid 65532 (Chainguard), so runAsNonRoot holds without a runAsUser pin.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: registry.digitalocean.com/sddp-registry/sddp-frontend@sha256:6f8ae1984398b7d5fd0b0fbfd57f7b846a877fe6b85f849880c683336c3c0542
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # In-cluster address of the backend. Reachable only because the
+            # frontend->backend NetworkPolicy allows egress to backend:3000;
+            # everything else is default-denied. Not a secret — a plain Service
+            # name — so it's inline, not a secretKeyRef.
+            - name: BACKEND_URL
+              value: http://backend:3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          # POL-03 (small tier): CPU request + memory request + memory limit.
+          # CPU limit intentionally omitted (permitted, not required — spec v1.2).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
