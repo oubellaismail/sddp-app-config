@@ -3,9 +3,10 @@
 #
 # Model: a default-deny-all FLOOR plus explicit, least-privilege allow-rules for
 # the tiers that actually need to talk. L3/L4 reachability lives here in the
-# config repo (cluster-architecture-spec app-shape). Currently wired for the
-# backend->db hop + DNS; frontend->backend is added with APP-006. mTLS (mutual
-# auth on top of these L3/L4 rules) is the separate Week-6 Cilium work.
+# config repo (cluster-architecture-spec app-shape). Wired for the full request
+# chain — frontend->backend and backend->db hops + DNS (APP-006 added the
+# frontend->backend pair). mTLS (mutual auth on top of these L3/L4 rules) is the
+# separate Week-6 Cilium work.
 #
 # All rules carry sync-wave "-1" so they exist before any pod is admitted
 # (POL-05) and before the pods try to talk.
@@ -97,3 +98,53 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+---
+# frontend -> backend (egress side): the frontend may open 3000 to backend pods.
+# Combined with the default-deny floor, the frontend can reach ONLY the backend
+# (plus DNS) — not the db directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# backend <- frontend (ingress side): the backend accepts 3000 ONLY from frontend
+# pods. Combined with allow-backend-to-db, the backend talks to frontend (in) and
+# db (out) and nothing else in the namespace can reach it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-from-frontend
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 3000

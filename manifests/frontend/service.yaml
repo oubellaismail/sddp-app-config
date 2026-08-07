@@ -1,0 +1,20 @@
+# Stable in-cluster address for the frontend. ClusterIP only — no external
+# exposure yet: for the demo it's reached via `kubectl port-forward` (Ingress is
+# Week-7 platform-ingress work). Selector app=frontend; the NetworkPolicy still
+# governs who may actually connect (nothing in-cluster targets it today —
+# port-forward comes from the node/kubelet, not gated by pod-to-pod policy).
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: sddp-app
+  labels:
+    app: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
