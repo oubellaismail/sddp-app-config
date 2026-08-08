@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: backend
-          image: registry.digitalocean.com/sddp-registry/sddp-backend@sha256:b39b95e2b9a6289218048d49b63bfd7f61f00b69e5181f6967e8209c41d6f3fe
+          image: registry.digitalocean.com/sddp-registry/sddp-backend@sha256:9f9ba447f0be51bfd2655ee79e633a693d1a0a81d9ad521ff7b033852aa6a165
           ports:
             - name: http
               containerPort: 3000
