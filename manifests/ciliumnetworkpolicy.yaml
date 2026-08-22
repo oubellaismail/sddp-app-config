@@ -1,0 +1,137 @@
+# Least-privilege network graph for sddp-app, as CiliumNetworkPolicy.
+#
+# These sit on top of the default-deny-all floor in networkpolicy.yaml and are
+# the sole owner of the allow-graph: frontend -> backend -> db, plus DNS for
+# every pod. Same L3/L4 relationships that stock NetworkPolicy expressed before,
+# now with two Cilium-only additions:
+#
+#   1. L7 DNS visibility on the DNS egress (matchPattern "*" allows every name
+#      but routes each lookup through Cilium's DNS proxy, so DNS flows are
+#      observable in Hubble and constrainable later). This is the enforcement
+#      seam for detecting/limiting DNS tunnelling out of an app pod.
+#   2. Default-deny egress stays intact: a pod may reach ONLY its declared
+#      next hop plus DNS, nothing else in or out of the namespace.
+#
+# App tiers get NO external egress by design — the only namespace permitted a
+# named public-SaaS destination is external-secrets (handled platform-side).
+#
+# sync-wave "-1" to land alongside the default-deny floor, before pods talk.
+---
+# DNS egress for every pod in the namespace, with L7 DNS visibility. Without
+# this, default-deny egress blocks name resolution and the backend can't even
+# resolve the `db` Service name.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+---
+# frontend -> backend (egress side): the frontend may open 3000 to backend pods
+# and, with the floor, can reach ONLY the backend (plus DNS) — not the db.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: frontend
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app: backend
+            io.kubernetes.pod.namespace: sddp-app
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+# backend <- frontend (ingress side): the backend accepts 3000 ONLY from
+# frontend pods.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-backend-from-frontend
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: backend
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: frontend
+            io.kubernetes.pod.namespace: sddp-app
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+# backend -> db (egress side): the backend may open 5432 to db pods and, with
+# the floor, reaches ONLY the db (plus DNS).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-backend-to-db
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: backend
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app: db
+            io.kubernetes.pod.namespace: sddp-app
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+# db <- backend (ingress side): the db accepts 5432 ONLY from backend pods.
+# Nothing else in the namespace can reach the database.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-db-from-backend
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: db
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: backend
+            io.kubernetes.pod.namespace: sddp-app
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
