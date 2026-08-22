@@ -1,15 +1,19 @@
-# Namespace network isolation for sddp-app — satisfies POL-05 (every app
-# namespace must DECLARE its isolation in Git) and enforced by DOKS's Cilium.
+# Namespace isolation floor for sddp-app.
 #
-# Model: a default-deny-all FLOOR plus explicit, least-privilege allow-rules for
-# the tiers that actually need to talk. L3/L4 reachability lives here in the
-# config repo (cluster-architecture-spec app-shape). Wired for the full request
-# chain — frontend->backend and backend->db hops + DNS (APP-006 added the
-# frontend->backend pair). mTLS (mutual auth on top of these L3/L4 rules) is the
-# separate Week-6 Cilium work.
+# This file now holds ONLY the default-deny-all floor. It is the required
+# baseline that every admitted pod depends on: with no explicit allow rules,
+# all ingress and egress are denied until something grants them.
 #
-# All rules carry sync-wave "-1" so they exist before any pod is admitted
-# (POL-05) and before the pods try to talk.
+# The explicit least-privilege allow-graph (frontend -> backend -> db + DNS)
+# has moved to ciliumnetworkpolicy.yaml, which expresses the same L3/L4 graph
+# as CiliumNetworkPolicy plus L7 DNS visibility on the DNS egress. Keeping the
+# allow-rules out of stock NetworkPolicy avoids a plain L3 DNS allow shadowing
+# the L7 DNS rule (an L3 allow is more permissive and would bypass the DNS
+# proxy). Admission still sees a NetworkPolicy in this namespace, so the
+# "a NetworkPolicy must exist" guardrail stays satisfied by this object alone.
+#
+# sync-wave "-1" so the floor exists before any pod is admitted and before any
+# pod tries to talk.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -22,129 +26,3 @@ spec:
   policyTypes:
     - Ingress
     - Egress
----
-# DNS for every pod — without this, default-deny egress blocks name resolution,
-# so the backend couldn't even resolve the `db` Service name. Egress to CoreDNS
-# (k8s-app=kube-dns) in kube-system, ports 53/udp + 53/tcp.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-dns-egress
-  namespace: sddp-app
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  podSelector: {}
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
----
-# backend -> db (egress side): the backend may open 5432 to db pods. Combined
-# with the default-deny floor, the backend can reach ONLY the db (plus DNS).
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-backend-to-db
-  namespace: sddp-app
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  podSelector:
-    matchLabels:
-      app: backend
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              app: db
-      ports:
-        - protocol: TCP
-          port: 5432
----
-# db <- backend (ingress side): the db accepts 5432 ONLY from backend pods.
-# Nothing else in the namespace can reach the database.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-db-from-backend
-  namespace: sddp-app
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  podSelector:
-    matchLabels:
-      app: db
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: backend
-      ports:
-        - protocol: TCP
-          port: 5432
----
-# frontend -> backend (egress side): the frontend may open 3000 to backend pods.
-# Combined with the default-deny floor, the frontend can reach ONLY the backend
-# (plus DNS) — not the db directly.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-frontend-to-backend
-  namespace: sddp-app
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  podSelector:
-    matchLabels:
-      app: frontend
-  policyTypes:
-    - Egress
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              app: backend
-      ports:
-        - protocol: TCP
-          port: 3000
----
-# backend <- frontend (ingress side): the backend accepts 3000 ONLY from frontend
-# pods. Combined with allow-backend-to-db, the backend talks to frontend (in) and
-# db (out) and nothing else in the namespace can reach it.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-backend-from-frontend
-  namespace: sddp-app
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
-spec:
-  podSelector:
-    matchLabels:
-      app: backend
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: frontend
-      ports:
-        - protocol: TCP
-          port: 3000
