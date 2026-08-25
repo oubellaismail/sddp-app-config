@@ -8,6 +8,9 @@ metadata:
   namespace: sddp-app
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
+    # Rate-limiting at the front door (flood protection).
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "15"
 spec:
   ingressClassName: nginx
   tls:
