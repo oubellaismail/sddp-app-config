@@ -44,6 +44,30 @@ spec:
             dns:
               - matchPattern: "*"
 ---
+# ingress -> frontend (ingress side): the nginx ingress controller (in the
+# platform-ingress namespace) may open 3000 to frontend pods. This is the one
+# north-south crossing into the app — external traffic terminates at the
+# controller, which then reaches the frontend here. Nothing else in-cluster can.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: frontend
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: platform-ingress
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
 # frontend -> backend (egress side): the frontend may open 3000 to backend pods
 # and, with the floor, can reach ONLY the backend (plus DNS) — not the db.
 apiVersion: cilium.io/v2
