@@ -1,0 +1,18 @@
+# Stable in-cluster address for __SVC__. ClusterIP only — external reach (if any)
+# is via the Ingress, never straight at the Service; the NetworkPolicy still
+# governs who may actually connect.
+apiVersion: v1
+kind: Service
+metadata:
+  name: __SVC__
+  namespace: sddp-app
+  labels:
+    app: __SVC__
+spec:
+  type: ClusterIP
+  selector:
+    app: __SVC__
+  ports:
+    - name: http
+      port: __PORT__
+      targetPort: http
