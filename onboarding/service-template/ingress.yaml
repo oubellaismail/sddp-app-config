@@ -1,0 +1,31 @@
+# External reach for __SVC__ at __HOST__. TLS is issued + renewed automatically
+# by cert-manager (the letsencrypt ClusterIssuer, DNS-01) into __SVC__-tls, and
+# routed by the nginx ingress controller with rate-limiting at the front door.
+# (Only generated when onboard.sh is given a --host.)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: __SVC__
+  namespace: sddp-app
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # Rate-limiting at the front door (flood protection).
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "15"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - __HOST__
+      secretName: __SVC__-tls
+  rules:
+    - host: __HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: __SVC__
+                port:
+                  number: __PORT__
