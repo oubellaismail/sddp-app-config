@@ -1,0 +1,18 @@
+# Stable in-cluster address for widget. ClusterIP only — external reach (if any)
+# is via the Ingress, never straight at the Service; the NetworkPolicy still
+# governs who may actually connect.
+apiVersion: v1
+kind: Service
+metadata:
+  name: widget
+  namespace: sddp-app
+  labels:
+    app: widget
+spec:
+  type: ClusterIP
+  selector:
+    app: widget
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
