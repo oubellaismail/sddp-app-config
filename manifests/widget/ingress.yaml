@@ -1,0 +1,31 @@
+# External reach for widget at widget.project-demo.tech. TLS is issued + renewed automatically
+# by cert-manager (the letsencrypt ClusterIssuer, DNS-01) into widget-tls, and
+# routed by the nginx ingress controller with rate-limiting at the front door.
+# (Only generated when onboard.sh is given a --host.)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: widget
+  namespace: sddp-app
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # Rate-limiting at the front door (flood protection).
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "15"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - widget.project-demo.tech
+      secretName: widget-tls
+  rules:
+    - host: widget.project-demo.tech
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: widget
+                port:
+                  number: 3000

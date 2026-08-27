@@ -1,0 +1,48 @@
+# Least-privilege network rules for widget, on top of the namespace default-deny
+# floor (networkpolicy.yaml). DNS egress is already granted namespace-wide, so a
+# standalone service that only serves traffic needs a single rule: accept
+# connections from the ingress controller. If widget CALLS another in-cluster
+# service, add an egress rule to that next hop (see the commented example below);
+# with the default-deny floor it will then reach ONLY that hop plus DNS.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-ingress-to-widget
+  namespace: sddp-app
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: widget
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: platform-ingress
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+# ---
+# # Egress example — uncomment + adjust if widget calls another service in the
+# # namespace (replace <nexthop> and <nexthop-port>):
+# apiVersion: cilium.io/v2
+# kind: CiliumNetworkPolicy
+# metadata:
+#   name: allow-widget-to-<nexthop>
+#   namespace: sddp-app
+#   annotations:
+#     argocd.argoproj.io/sync-wave: "-1"
+# spec:
+#   endpointSelector:
+#     matchLabels:
+#       app: widget
+#   egress:
+#     - toEndpoints:
+#         - matchLabels:
+#             app: <nexthop>
+#             io.kubernetes.pod.namespace: sddp-app
+#       toPorts:
+#         - ports:
+#             - port: "<nexthop-port>"
+#               protocol: TCP
